@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 import { integrationStatus, abiturStartDate } from "@/lib/config";
 import { fetchSchuleTermine } from "@/lib/notion/schule";
 import { fetchProjekte } from "@/lib/notion/projekte";
@@ -75,28 +75,28 @@ async function buildContext(): Promise<string> {
   return lines.join("\n");
 }
 
-async function respondWithClaude(transcript: string): Promise<string> {
-  const client = new Anthropic(); // liest ANTHROPIC_API_KEY aus der Umgebung
+async function respondWithGemini(transcript: string): Promise<string> {
+  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const context = await buildContext();
 
-  const response = await client.messages.create({
-    model: "claude-opus-5",
-    max_tokens: 300,
-    output_config: { effort: "low" },
-    system: [
-      "Du bist Jarvis, das persönliche Command-Center-Assistenzsystem eines Gymnasiasten in der Abitur-Vorbereitung (Q2).",
-      "Antworte kurz und natürlich auf Deutsch (1-3 Sätze), da die Antwort per Sprachausgabe vorgelesen wird — keine Aufzählungen, keine Markdown-Formatierung.",
-      "Nutze ausschließlich die folgenden Live-Daten aus dem Dashboard, erfinde nichts dazu:",
-      context,
-    ].join("\n\n"),
-    messages: [{ role: "user", content: transcript }],
+  const response = await client.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: transcript,
+    config: {
+      systemInstruction: [
+        "Du bist Jarvis, das persönliche Command-Center-Assistenzsystem eines Gymnasiasten in der Abitur-Vorbereitung (Q2).",
+        "Antworte kurz und natürlich auf Deutsch (1-3 Sätze), da die Antwort per Sprachausgabe vorgelesen wird — keine Aufzählungen, keine Markdown-Formatierung.",
+        "Nutze ausschließlich die folgenden Live-Daten aus dem Dashboard, erfinde nichts dazu:",
+        context,
+      ].join("\n\n"),
+    },
   });
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  return textBlock?.type === "text" ? textBlock.text.trim() : "Keine Antwort erhalten.";
+  const text = response.text?.trim();
+  return text || "Keine Antwort erhalten.";
 }
 
-// Regelbasierter Fallback: läuft ohne ANTHROPIC_API_KEY und ohne
+// Regelbasierter Fallback: läuft ohne GEMINI_API_KEY und ohne
 // zusätzliche Kosten, deckt aber nur die naheliegendsten Fragen ab.
 async function respondWithRules(transcript: string): Promise<string> {
   const q = transcript.toLowerCase();
@@ -145,15 +145,15 @@ async function respondWithRules(transcript: string): Promise<string> {
     return `Aktueller Depotwert: ${latest.wert.toLocaleString("de-DE")} Euro.`;
   }
 
-  return "Verstanden. Für diese Anfrage ist noch keine Logik hinterlegt — hinterleg einen ANTHROPIC_API_KEY für echte Konversation, oder erweitere lib/assistant/respond.ts.";
+  return "Verstanden. Für diese Anfrage ist noch keine Logik hinterlegt — hinterleg einen GEMINI_API_KEY für echte Konversation, oder erweitere lib/assistant/respond.ts.";
 }
 
 export async function respond(transcript: string): Promise<string> {
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (process.env.GEMINI_API_KEY) {
     try {
-      return await respondWithClaude(transcript);
+      return await respondWithGemini(transcript);
     } catch {
-      // Claude nicht erreichbar (z.B. Netzwerk/Quota) -> Regel-Fallback
+      // Gemini nicht erreichbar (z.B. Netzwerk/Quota) -> Regel-Fallback
       return respondWithRules(transcript);
     }
   }

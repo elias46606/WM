@@ -120,12 +120,13 @@ die Schule-Datenbank eintragen — Jarvis findet ihn automatisch.
    funktioniert auch auf iPad Safari) → ElevenLabs Scribe (Speech-to-
    Text) → `src/lib/assistant/respond.ts` → ElevenLabs TTS (mit
    Browser-Fallback).
-4. **Echte Konversation:** setze zusätzlich `ANTHROPIC_API_KEY`
-   (Key aus https://console.anthropic.com/settings/keys) — dann
-   beantwortet Claude jede Anfrage frei, mit den Live-Dashboard-Daten
-   (Countdown, Termine, Projekte, Depot) als Kontext im System-Prompt.
-   Ohne den Key bleibt die einfache Regel-Logik aktiv (nur die vier
-   Themen oben), kostet aber nichts extra.
+4. **Echte Konversation, kostenlos:** setze zusätzlich `GEMINI_API_KEY`
+   (kostenloser Key ohne Zahlungsmittel aus
+   https://aistudio.google.com/apikey) — dann beantwortet Google
+   Gemini jede Anfrage frei, mit den Live-Dashboard-Daten (Countdown,
+   Termine, Projekte, Depot) als Kontext im System-Prompt. Ohne den
+   Key bleibt die einfache Regel-Logik aktiv (nur die vier Themen
+   oben).
 
 ### Gmail
 
