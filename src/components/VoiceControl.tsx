@@ -22,6 +22,25 @@ export function VoiceControl() {
   const [errorMsg, setErrorMsg] = useState("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  // Wiederverwendetes <audio>-Element, das schon beim Antippen (also
+  // noch innerhalb der Nutzer-Geste) einmal "angespielt" wird. Ohne
+  // das blockt z.B. iOS Safari die Wiedergabe später lautlos, weil
+  // die Antwort erst nach mehreren asynchronen Schritten (STT,
+  // Gemini) kommt und die Geste dann längst "verbraucht" ist.
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+
+  const unlockAudio = useCallback(() => {
+    if (!audioElRef.current) {
+      audioElRef.current = new Audio();
+    }
+    // Stummes "Anspielen" innerhalb der Tap-Geste entsperrt spätere
+    // programmatische .play()-Aufrufe auf demselben Element.
+    audioElRef.current.play().catch(() => {});
+    if ("speechSynthesis" in window) {
+      const primer = new SpeechSynthesisUtterance("");
+      window.speechSynthesis.speak(primer);
+    }
+  }, []);
 
   // Fallback über die im Browser eingebaute Sprachausgabe (kostenlos,
   // kein Account nötig) — springt ein, wenn ElevenLabs TTS nicht
@@ -55,7 +74,9 @@ export function VoiceControl() {
         if (!res.ok) throw new Error((await res.json()).error ?? "TTS-Fehler");
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
+        const audio = audioElRef.current ?? new Audio();
+        audioElRef.current = audio;
+        audio.src = url;
         audio.onended = () => setState("idle");
         await audio.play();
       } catch {
@@ -128,6 +149,7 @@ export function VoiceControl() {
     if (state === "recording") {
       handleStop();
     } else if (state === "idle" || state === "error") {
+      unlockAudio();
       startRecording();
     }
   };
