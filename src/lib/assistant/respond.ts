@@ -80,7 +80,7 @@ async function respondWithGemini(transcript: string): Promise<string> {
   const context = await buildContext();
 
   const response = await client.models.generateContent({
-    model: "gemini-3.6-flash",
+    model: "gemini-3.8-flash",
     contents: transcript,
     config: {
       systemInstruction: [
