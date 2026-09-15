@@ -1,16 +1,104 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { integrationStatus, abiturStartDate } from "@/lib/config";
 import { fetchSchuleTermine } from "@/lib/notion/schule";
 import { fetchProjekte } from "@/lib/notion/projekte";
 import { fetchDepotVerlauf } from "@/lib/notion/depot";
 
-// Regelbasierter MVP-Responder: beantwortet die naheliegendsten
-// Fragen direkt aus den Live-Daten des Dashboards. Bewusst ohne
-// LLM-Anbindung, damit Jarvis ohne weitere Kosten/Keys läuft.
-//
-// Erweiterungspunkt: um "echte" Konversation zu bekommen, hier einfach
-// vor dem Fallback einen Call an die Anthropic Messages API einbauen
-// (System-Prompt mit den unten gesammelten Live-Daten füttern).
-export async function respond(transcript: string): Promise<string> {
+// Baut eine kurze Zusammenfassung der Live-Daten, die Claude als
+// Kontext bekommt, damit die Antworten den tatsächlichen Dashboard-
+// Stand kennen statt zu halluzinieren.
+async function buildContext(): Promise<string> {
+  const lines: string[] = [];
+
+  const target = abiturStartDate();
+  if (target) {
+    const days = Math.round(
+      (new Date(target).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) /
+        86400000
+    );
+    lines.push(`Abitur-Countdown: noch ${days} Tage (${target}).`);
+  } else {
+    lines.push("Abitur-Countdown: kein Termin hinterlegt.");
+  }
+
+  if (integrationStatus.notion.schule) {
+    try {
+      const termine = await fetchSchuleTermine();
+      lines.push(
+        termine.length === 0
+          ? "Schule: keine anstehenden Termine."
+          : "Nächste Schul-Termine: " +
+              termine
+                .slice(0, 5)
+                .map(
+                  (t) =>
+                    `${t.titel}${t.fach ? " (" + t.fach + ")" : ""}${t.datum ? " am " + t.datum : ""}`
+                )
+                .join("; ")
+      );
+    } catch {
+      lines.push("Schule: Daten gerade nicht abrufbar.");
+    }
+  }
+
+  if (integrationStatus.notion.projekte) {
+    try {
+      const projekte = await fetchProjekte();
+      lines.push(
+        projekte.length === 0
+          ? "Projekte: keine gefunden."
+          : "Projekte: " +
+              projekte
+                .slice(0, 8)
+                .map((p) => `${p.name} (${p.status}${p.fortschritt !== null ? ", " + p.fortschritt + "%" : ""})`)
+                .join("; ")
+      );
+    } catch {
+      lines.push("Projekte: Daten gerade nicht abrufbar.");
+    }
+  }
+
+  if (integrationStatus.notion.depot) {
+    try {
+      const eintraege = await fetchDepotVerlauf();
+      const latest = eintraege[0];
+      lines.push(
+        latest && latest.wert !== null
+          ? `Depot: aktueller Wert ${latest.wert.toLocaleString("de-DE")} Euro (Stand ${latest.datum ?? "unbekannt"}).`
+          : "Depot: kein aktueller Wert gefunden."
+      );
+    } catch {
+      lines.push("Depot: Daten gerade nicht abrufbar.");
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function respondWithClaude(transcript: string): Promise<string> {
+  const client = new Anthropic(); // liest ANTHROPIC_API_KEY aus der Umgebung
+  const context = await buildContext();
+
+  const response = await client.messages.create({
+    model: "claude-opus-5",
+    max_tokens: 300,
+    output_config: { effort: "low" },
+    system: [
+      "Du bist Jarvis, das persönliche Command-Center-Assistenzsystem eines Gymnasiasten in der Abitur-Vorbereitung (Q2).",
+      "Antworte kurz und natürlich auf Deutsch (1-3 Sätze), da die Antwort per Sprachausgabe vorgelesen wird — keine Aufzählungen, keine Markdown-Formatierung.",
+      "Nutze ausschließlich die folgenden Live-Daten aus dem Dashboard, erfinde nichts dazu:",
+      context,
+    ].join("\n\n"),
+    messages: [{ role: "user", content: transcript }],
+  });
+
+  const textBlock = response.content.find((b) => b.type === "text");
+  return textBlock?.type === "text" ? textBlock.text.trim() : "Keine Antwort erhalten.";
+}
+
+// Regelbasierter Fallback: läuft ohne ANTHROPIC_API_KEY und ohne
+// zusätzliche Kosten, deckt aber nur die naheliegendsten Fragen ab.
+async function respondWithRules(transcript: string): Promise<string> {
   const q = transcript.toLowerCase();
 
   if (q.includes("abitur") || q.includes("countdown") || q.includes("wie viele tage")) {
@@ -57,5 +145,17 @@ export async function respond(transcript: string): Promise<string> {
     return `Aktueller Depotwert: ${latest.wert.toLocaleString("de-DE")} Euro.`;
   }
 
-  return "Verstanden. Für diese Anfrage ist noch keine Logik hinterlegt — das lässt sich in lib/assistant/respond.ts erweitern.";
+  return "Verstanden. Für diese Anfrage ist noch keine Logik hinterlegt — hinterleg einen ANTHROPIC_API_KEY für echte Konversation, oder erweitere lib/assistant/respond.ts.";
+}
+
+export async function respond(transcript: string): Promise<string> {
+  if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      return await respondWithClaude(transcript);
+    } catch {
+      // Claude nicht erreichbar (z.B. Netzwerk/Quota) -> Regel-Fallback
+      return respondWithRules(transcript);
+    }
+  }
+  return respondWithRules(transcript);
 }

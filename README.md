@@ -107,16 +107,25 @@ die Schule-Datenbank eintragen — Jarvis findet ihn automatisch.
 ### ElevenLabs (Sprachsteuerung)
 
 1. API-Key aus deinem ElevenLabs-Account → `ELEVENLABS_API_KEY`.
-2. Optional: `ELEVENLABS_VOICE_ID` auf eine eigene Stimme setzen.
+2. Eigene Stimme: im Free-Plan blockt ElevenLabs den API-Zugriff auf
+   Voice-Library-Stimmen ("Free users cannot use library voices via
+   the API"). Eine Stimme in ElevenLabs unter "Voice Library" →
+   "Add to my voices" hinzufügen, dann deren ID aus "My Voices" in
+   `ELEVENLABS_VOICE_ID` eintragen. Schlägt der ElevenLabs-Call
+   trotzdem fehl (z.B. weiterhin Free-Plan-Limit), springt die App
+   automatisch auf die Sprachausgabe des Browsers/iPads um
+   (`window.speechSynthesis`, kostenlos, kein Setup nötig) — Voice
+   Input über ElevenLabs Scribe läuft davon unabhängig weiter.
 3. Tap-to-speak nutzt `MediaRecorder` (Mikrofon-Zugriff im Browser,
    funktioniert auch auf iPad Safari) → ElevenLabs Scribe (Speech-to-
-   Text) → einen regelbasierten Responder
-   (`src/lib/assistant/respond.ts`) → ElevenLabs TTS.
-4. **Erweiterungspunkt:** Der Responder beantwortet aktuell nur
-   Fragen zu Countdown/Terminen/Projekten/Depot direkt aus den Live-
-   Daten. Für echte Konversation dort einen Call an die Anthropic
-   Messages API ergänzen (Kontext: die gleichen Live-Daten als
-   System-Prompt).
+   Text) → `src/lib/assistant/respond.ts` → ElevenLabs TTS (mit
+   Browser-Fallback).
+4. **Echte Konversation:** setze zusätzlich `ANTHROPIC_API_KEY`
+   (Key aus https://console.anthropic.com/settings/keys) — dann
+   beantwortet Claude jede Anfrage frei, mit den Live-Dashboard-Daten
+   (Countdown, Termine, Projekte, Depot) als Kontext im System-Prompt.
+   Ohne den Key bleibt die einfache Regel-Logik aktiv (nur die vier
+   Themen oben), kostet aber nichts extra.
 
 ### Gmail
 
