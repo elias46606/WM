@@ -1,8 +1,22 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type Content, type FunctionDeclaration } from "@google/genai";
 import { integrationStatus, abiturStartDate } from "@/lib/config";
 import { fetchSchuleTermine } from "@/lib/notion/schule";
 import { fetchProjekte } from "@/lib/notion/projekte";
 import { fetchDepotVerlauf } from "@/lib/notion/depot";
+import { getBrowserAgent } from "@/lib/mcp/browser";
+
+const webSearchTool: FunctionDeclaration = {
+  name: "web_search",
+  description:
+    "Sucht aktuelle Informationen im offenen Internet — z.B. Nachrichten, Wetter, allgemeine Fakten —, die nicht aus den Dashboard-Live-Daten hervorgehen.",
+  parametersJsonSchema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Die Suchanfrage" },
+    },
+    required: ["query"],
+  },
+};
 
 // Baut eine kurze Zusammenfassung der Live-Daten, die Claude als
 // Kontext bekommt, damit die Antworten den tatsächlichen Dashboard-
@@ -86,9 +100,16 @@ async function respondWithGemini(transcript: string): Promise<string> {
   const systemInstruction = [
     "Du bist Jarvis, das persönliche Command-Center-Assistenzsystem eines Gymnasiasten in der Abitur-Vorbereitung (Q2).",
     "Antworte kurz und natürlich auf Deutsch (1-3 Sätze), da die Antwort per Sprachausgabe vorgelesen wird — keine Aufzählungen, keine Markdown-Formatierung.",
-    "Nutze ausschließlich die folgenden Live-Daten aus dem Dashboard, erfinde nichts dazu:",
+    "Für Fragen zu Schule/Projekten/Depot nutze ausschließlich die folgenden Live-Daten, erfinde nichts dazu. Für Fragen, die diese Daten nicht beantworten (z.B. aktuelle Nachrichten, Wetter, allgemeines Wissen), nutze bei Bedarf das web_search-Tool.",
     context,
   ].join("\n\n");
+
+  // web_search-Tool nur anbieten, wenn eine echte Suche dahintersteht
+  // (Tavily) — sonst würde Gemini versuchen, ein Tool aufzurufen, das
+  // gar nicht bedient werden kann.
+  const tools = integrationStatus.browserMcp
+    ? [{ functionDeclarations: [webSearchTool] }]
+    : undefined;
 
   // Google-Modelle sind gelegentlich kurzzeitig überlastet (503) ->
   // ein Retry mit kurzer Pause reicht meist, laut Fehlermeldung sind
@@ -96,11 +117,52 @@ async function respondWithGemini(transcript: string): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await client.models.generateContent({
+      const contents: Content[] = [{ role: "user", parts: [{ text: transcript }] }];
+
+      let response = await client.models.generateContent({
         model: "gemini-3.6-flash",
-        contents: transcript,
-        config: { systemInstruction },
+        contents,
+        config: { systemInstruction, tools },
       });
+
+      const call = response.functionCalls?.[0];
+      if (call?.name === "web_search" && response.candidates?.[0]?.content) {
+        const query =
+          typeof call.args?.query === "string" ? call.args.query : transcript;
+
+        let resultForModel: string;
+        try {
+          const results = await getBrowserAgent().search(query);
+          resultForModel =
+            results.length === 0
+              ? "Keine Ergebnisse gefunden."
+              : results
+                  .map((r) => `${r.title}: ${r.snippet} (Quelle: ${r.url})`)
+                  .join("\n");
+        } catch (err) {
+          resultForModel = `Suche fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`;
+        }
+
+        contents.push(response.candidates[0].content);
+        contents.push({
+          role: "user",
+          parts: [
+            {
+              functionResponse: {
+                name: "web_search",
+                response: { result: resultForModel },
+              },
+            },
+          ],
+        });
+
+        response = await client.models.generateContent({
+          model: "gemini-3.6-flash",
+          contents,
+          config: { systemInstruction, tools },
+        });
+      }
+
       const text = response.text?.trim();
       return text || "Keine Antwort erhalten.";
     } catch (err) {
