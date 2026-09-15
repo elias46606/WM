@@ -75,25 +75,40 @@ async function buildContext(): Promise<string> {
   return lines.join("\n");
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function respondWithGemini(transcript: string): Promise<string> {
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const context = await buildContext();
 
-  const response = await client.models.generateContent({
-    model: "gemini-3.8-flash",
-    contents: transcript,
-    config: {
-      systemInstruction: [
-        "Du bist Jarvis, das persönliche Command-Center-Assistenzsystem eines Gymnasiasten in der Abitur-Vorbereitung (Q2).",
-        "Antworte kurz und natürlich auf Deutsch (1-3 Sätze), da die Antwort per Sprachausgabe vorgelesen wird — keine Aufzählungen, keine Markdown-Formatierung.",
-        "Nutze ausschließlich die folgenden Live-Daten aus dem Dashboard, erfinde nichts dazu:",
-        context,
-      ].join("\n\n"),
-    },
-  });
+  const systemInstruction = [
+    "Du bist Jarvis, das persönliche Command-Center-Assistenzsystem eines Gymnasiasten in der Abitur-Vorbereitung (Q2).",
+    "Antworte kurz und natürlich auf Deutsch (1-3 Sätze), da die Antwort per Sprachausgabe vorgelesen wird — keine Aufzählungen, keine Markdown-Formatierung.",
+    "Nutze ausschließlich die folgenden Live-Daten aus dem Dashboard, erfinde nichts dazu:",
+    context,
+  ].join("\n\n");
 
-  const text = response.text?.trim();
-  return text || "Keine Antwort erhalten.";
+  // Google-Modelle sind gelegentlich kurzzeitig überlastet (503) ->
+  // ein Retry mit kurzer Pause reicht meist, laut Fehlermeldung sind
+  // solche Lastspitzen "usually temporary".
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await client.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: transcript,
+        config: { systemInstruction },
+      });
+      const text = response.text?.trim();
+      return text || "Keine Antwort erhalten.";
+    } catch (err) {
+      lastErr = err;
+      if (attempt === 0) await sleep(800);
+    }
+  }
+  throw lastErr;
 }
 
 // Regelbasierter Fallback: läuft ohne GEMINI_API_KEY und ohne
@@ -152,11 +167,10 @@ export async function respond(transcript: string): Promise<string> {
   if (process.env.GEMINI_API_KEY) {
     try {
       return await respondWithGemini(transcript);
-    } catch (err) {
-      // TEMPORÄR zum Debuggen: Fehler statt stillem Regel-Fallback
-      // anzeigen. Danach wieder auf respondWithRules(transcript) ändern.
-      const detail = err instanceof Error ? err.message : String(err);
-      return `Gemini-Fehler: ${detail}`;
+    } catch {
+      // Gemini nach Retry weiter nicht erreichbar -> Regel-Fallback,
+      // damit die App auch bei Google-Ausfällen antwortfähig bleibt.
+      return respondWithRules(transcript);
     }
   }
   return respondWithRules(transcript);
