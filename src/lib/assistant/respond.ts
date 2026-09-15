@@ -167,10 +167,11 @@ export async function respond(transcript: string): Promise<string> {
   if (process.env.GEMINI_API_KEY) {
     try {
       return await respondWithGemini(transcript);
-    } catch {
-      // Gemini nach Retry weiter nicht erreichbar -> Regel-Fallback,
-      // damit die App auch bei Google-Ausfällen antwortfähig bleibt.
-      return respondWithRules(transcript);
+    } catch (err) {
+      // TEMPORÄR zum Debuggen: Fehler statt stillem Regel-Fallback
+      // anzeigen. Danach wieder auf respondWithRules(transcript) ändern.
+      const detail = err instanceof Error ? err.message : String(err);
+      return `Gemini-Fehler: ${detail}`;
     }
   }
   return respondWithRules(transcript);
