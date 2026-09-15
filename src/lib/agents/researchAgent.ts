@@ -10,10 +10,10 @@ export const researchAgent: Agent = {
     if (!integrationStatus.browserMcp) {
       return {
         state: "idle",
-        detail: "Wartet auf Browser-MCP-Anbindung (MCP_BROWSER_ENDPOINT).",
+        detail: "Wartet auf Tavily-Anbindung (TAVILY_API_KEY).",
       };
     }
-    return { state: "online", detail: "Bereit für Suchanfragen." };
+    return { state: "online", detail: "Bereit für Suchanfragen (Tavily)." };
   },
   async run(input) {
     const query = typeof input === "string" ? input : "";

@@ -15,7 +15,7 @@ export const integrationStatus = {
       process.env.GMAIL_CLIENT_SECRET &&
       process.env.GMAIL_REFRESH_TOKEN
   ),
-  browserMcp: Boolean(process.env.MCP_BROWSER_ENDPOINT),
+  browserMcp: Boolean(process.env.TAVILY_API_KEY),
 };
 
 export function abiturStartDate(): string | null {

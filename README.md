@@ -49,7 +49,7 @@ src/
       email/route.ts                               Gmail-Kachel
       voice/{tts,stt,respond}/route.ts             Sprachsteuerung
       agents/route.ts                              Sub-Agents-Status
-      browser/search/route.ts                       Browser/MCP-Grundgerüst
+      browser/search/route.ts                       Websuche (Tavily)
       system/status/route.ts                        Welche Integrationen sind konfiguriert?
   components/               Dashboard-Kacheln (Panels)
   components/hud/            Wiederverwendbare HUD-Bausteine (Panel, StatusBadge)
@@ -57,9 +57,9 @@ src/
     notion/                  Notion-Client + robuste Property-Parser
     gmail.ts                  Gmail-Client (OAuth2)
     elevenlabs.ts              TTS/STT-Client
-    assistant/respond.ts       Regelbasierter Sprach-Responder (Erweiterungspunkt für LLM)
+    assistant/respond.ts       Sprach-Responder (Gemini, mit Regel-Fallback)
     agents/                    Sub-Agent-Interface + Registry
-    mcp/browser.ts              Browser/MCP-Platzhalter
+    mcp/browser.ts              Websuche über Tavily
     config.ts                   Zentrale Feature-Flags (was ist konfiguriert?)
   types/notion.ts             Gemeinsame Typen fürs Dashboard
 data/                        Laufzeit-Daten (Briefing-JSON), nicht eingecheckt
@@ -155,18 +155,20 @@ curl -X POST https://<deine-domain>/api/briefing \
 Briefing (älter als heute oder noch nie empfangen) zeigt die Kachel
 das ehrlich an, statt etwas zu erfinden.
 
-### Browser/MCP & Sub-Agents (Grundgerüst)
+### Websuche & Sub-Agents
 
-- `src/lib/mcp/browser.ts` definiert die Schnittstelle für
-  eigenständige Websuche/Browser-Aktionen. Aktuell ein Platzhalter —
-  sobald ein MCP-Browser-Server läuft, `MCP_BROWSER_ENDPOINT` setzen
-  und in `getBrowserAgent()` einen echten MCP-Client (z.B.
-  `@modelcontextprotocol/sdk`) einhängen.
-- `src/lib/agents/` enthält die Sub-Agent-Architektur. Aktuell aktiv:
-  **Notion-Sync-Agent** (meldet Sync-Status) und **Briefing-Agent**
-  (meldet, ob das heutige Briefing da ist) — beide echt, kein Fake.
-  **Research-Agent** ist an das Browser-MCP-Grundgerüst angebunden
-  und wird aktiv, sobald `MCP_BROWSER_ENDPOINT` konfiguriert ist.
+- `src/lib/mcp/browser.ts` implementiert Websuche über die
+  **Tavily-API** (kostenloses Kontingent, für KI-Agenten gebaut,
+  kein Zahlungsmittel nötig): Key auf https://app.tavily.com holen
+  → `TAVILY_API_KEY` in Vercel setzen. Das `BrowserAgent`-Interface
+  bleibt austauschbar — falls später ein echter MCP-Browser-Server
+  gewünscht ist, einfach eine zweite Implementierung in
+  `getBrowserAgent()` einhängen.
+- `src/lib/agents/` enthält die Sub-Agent-Architektur. Aktiv:
+  **Notion-Sync-Agent** (meldet Sync-Status), **Briefing-Agent**
+  (meldet, ob das heutige Briefing da ist) und **Research-Agent**
+  (sucht über Tavily, sobald `TAVILY_API_KEY` gesetzt ist — testbar
+  über `POST /api/browser/search` mit `{"query": "..."}`).
   **Task-Agent** und **Coding-Agent** sind bewusst als ehrliche
   Platzhalter angelegt (Status "idle"), damit die Architektur für
   mehrere spezialisierte Agenten von Anfang an sichtbar ist — neue

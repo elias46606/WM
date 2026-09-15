@@ -1,11 +1,9 @@
-// Grundgerüst für eigenständige Websuche/Browser-Aktionen über MCP.
-//
-// Aktuell ein reiner Platzhalter: definiert die Schnittstelle, die
-// ein echter MCP-Browser-Client (z.B. Playwright-MCP oder ein
-// gehosteter Such-MCP-Server) später implementiert. Sobald
-// MCP_BROWSER_ENDPOINT gesetzt ist, kann hier ein echter MCP-Client
-// (z.B. @modelcontextprotocol/sdk) angebunden werden, der Tools wie
-// "browser.search" oder "browser.navigate" aufruft.
+// Websuche für den Research-Agent, über die Tavily-API (kostenloses
+// Kontingent, für KI-Agenten gebaut). "MCP" im Dateinamen/Kommentar
+// bezieht sich auf die ursprünglich vorgesehene Architektur — statt
+// eines eigenen MCP-Servers ruft die App die Such-API direkt per
+// REST auf, das Interface bleibt aber austauschbar (z.B. gegen einen
+// echten MCP-Browser-Server), falls später gewünscht.
 
 export type BrowserSearchResult = {
   title: string;
@@ -19,16 +17,46 @@ export interface BrowserAgent {
 
 class UnconfiguredBrowserAgent implements BrowserAgent {
   async search(): Promise<BrowserSearchResult[]> {
-    throw new Error(
-      "Browser-MCP ist noch nicht konfiguriert (MCP_BROWSER_ENDPOINT fehlt)."
-    );
+    throw new Error("Websuche ist noch nicht konfiguriert (TAVILY_API_KEY fehlt).");
   }
 }
 
-// TODO: sobald ein MCP-Browser-Server verfügbar ist, hier eine
-// Implementierung ergänzen, die per MCP-Client gegen
-// process.env.MCP_BROWSER_ENDPOINT spricht, und in getBrowserAgent()
-// zurückgeben.
+class TavilyBrowserAgent implements BrowserAgent {
+  constructor(private apiKey: string) {}
+
+  async search(query: string): Promise<BrowserSearchResult[]> {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        max_results: 5,
+        search_depth: "basic",
+      }),
+    });
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Tavily-Suche fehlgeschlagen (${res.status}): ${detail}`);
+    }
+
+    const json = await res.json();
+    const results: unknown[] = Array.isArray(json.results) ? json.results : [];
+    return results.map((r) => {
+      const result = r as { title?: string; url?: string; content?: string };
+      return {
+        title: result.title ?? "",
+        url: result.url ?? "",
+        snippet: result.content ?? "",
+      };
+    });
+  }
+}
+
 export function getBrowserAgent(): BrowserAgent {
-  return new UnconfiguredBrowserAgent();
+  const apiKey = process.env.TAVILY_API_KEY;
+  return apiKey ? new TavilyBrowserAgent(apiKey) : new UnconfiguredBrowserAgent();
 }

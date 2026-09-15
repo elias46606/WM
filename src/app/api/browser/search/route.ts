@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   if (!integrationStatus.browserMcp) {
     return NextResponse.json(
-      { error: "MCP_BROWSER_ENDPOINT nicht konfiguriert (Grundgerüst, noch nicht aktiv)." },
+      { error: "TAVILY_API_KEY nicht konfiguriert." },
       { status: 501 }
     );
   }
