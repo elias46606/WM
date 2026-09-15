@@ -97,7 +97,7 @@ async function respondWithGemini(transcript: string): Promise<string> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await client.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: "gemini-3.6-flash",
         contents: transcript,
         config: { systemInstruction },
       });
