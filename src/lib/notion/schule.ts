@@ -8,15 +8,20 @@ export async function fetchSchuleTermine(): Promise<SchuleTermin[]> {
 
   const pages = await queryDatabase(databaseId);
 
+  const doneStates = ["erledigt", "done", "fertig", "abgeschlossen"];
+
   const termine: SchuleTermin[] = pages.map((page) => {
-    const date = getDate(page, ["Datum", "Date", "Fällig", "Termin", "Deadline"]);
+    const date = getDate(page, ["Datum", "Date", "Fällig", "Faellig", "Termin", "Deadline"]);
+    const status = getSelect(page, ["Status"]);
     return {
       id: page.id,
-      titel: getTitle(page, ["Name", "Titel", "Title"]),
+      titel: getTitle(page, ["Thema", "Name", "Titel", "Title"]),
       typ: getSelect(page, ["Typ", "Type", "Kategorie", "Art"]),
       fach: getSelect(page, ["Fach", "Subject", "Kurs"]),
       datum: date?.start ?? null,
-      erledigt: getCheckbox(page, ["Erledigt", "Done", "Fertig"]),
+      erledigt:
+        getCheckbox(page, ["Erledigt", "Done", "Fertig"]) ||
+        doneStates.includes(status.toLowerCase()),
       url: getUrl(page, ["Link", "URL"]) || ("url" in page ? page.url : ""),
     };
   });
