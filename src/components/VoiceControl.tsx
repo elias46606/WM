@@ -23,25 +23,48 @@ export function VoiceControl() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
-  const speak = useCallback(async (text: string) => {
-    setState("speaking");
-    try {
-      const res = await fetch("/api/voice/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? "TTS-Fehler");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.onended = () => setState("idle");
-      await audio.play();
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Sprachausgabe fehlgeschlagen");
+  // Fallback über die im Browser eingebaute Sprachausgabe (kostenlos,
+  // kein Account nötig) — springt ein, wenn ElevenLabs TTS nicht
+  // verfügbar ist (z.B. Free-Plan-Einschränkung auf Library-Voices).
+  const speakWithBrowser = useCallback((text: string) => {
+    if (!("speechSynthesis" in window)) {
+      setErrorMsg("Sprachausgabe wird von diesem Browser nicht unterstützt.");
       setState("error");
+      return;
     }
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "de-DE";
+    utterance.onend = () => setState("idle");
+    utterance.onerror = () => {
+      setErrorMsg("Sprachausgabe fehlgeschlagen.");
+      setState("error");
+    };
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
   }, []);
+
+  const speak = useCallback(
+    async (text: string) => {
+      setState("speaking");
+      try {
+        const res = await fetch("/api/voice/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error ?? "TTS-Fehler");
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => setState("idle");
+        await audio.play();
+      } catch {
+        // ElevenLabs nicht verfügbar (z.B. Free-Plan-Limit) -> Browser-TTS
+        speakWithBrowser(text);
+      }
+    },
+    [speakWithBrowser]
+  );
 
   const handleStop = useCallback(async () => {
     const recorder = mediaRecorderRef.current;
