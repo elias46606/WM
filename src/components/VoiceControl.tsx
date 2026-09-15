@@ -22,19 +22,39 @@ export function VoiceControl() {
   const [errorMsg, setErrorMsg] = useState("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  // Wiederverwendetes <audio>-Element, das schon beim Antippen (also
-  // noch innerhalb der Nutzer-Geste) einmal "angespielt" wird. Ohne
-  // das blockt z.B. iOS Safari die Wiedergabe später lautlos, weil
-  // die Antwort erst nach mehreren asynchronen Schritten (STT,
+  // Wiederverwendetes <audio>-Element, das schon beim ersten Antippen
+  // (also noch innerhalb der Nutzer-Geste) einmal "angespielt" wird.
+  // Ohne das blockt z.B. iOS Safari die Wiedergabe später lautlos,
+  // weil die Antwort erst nach mehreren asynchronen Schritten (STT,
   // Gemini) kommt und die Geste dann längst "verbraucht" ist.
   const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const unlockedRef = useRef(false);
+  // Wird gesetzt, wenn der Nutzer eine laufende Antwort aktiv
+  // abgebrochen hat -> verhindert, dass speak() danach noch auf den
+  // Browser-Fallback ausweicht und die alte Antwort doch noch vorliest.
+  const interruptedRef = useRef(false);
+
+  const stopSpeaking = useCallback(() => {
+    interruptedRef.current = true;
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    const el = audioElRef.current;
+    if (el) {
+      el.pause();
+      el.currentTime = 0;
+    }
+  }, []);
 
   const unlockAudio = useCallback(() => {
+    if (unlockedRef.current) return;
+    unlockedRef.current = true;
     if (!audioElRef.current) {
       audioElRef.current = new Audio();
     }
     // Stummes "Anspielen" innerhalb der Tap-Geste entsperrt spätere
-    // programmatische .play()-Aufrufe auf demselben Element.
+    // programmatische .play()-Aufrufe auf demselben Element. Nur
+    // einmal pro Sitzung nötig — ein erneutes .play() auf demselben
+    // Element würde sonst eine schon geladene alte Antwort erneut
+    // anspielen.
     audioElRef.current.play().catch(() => {});
     if ("speechSynthesis" in window) {
       const primer = new SpeechSynthesisUtterance("");
@@ -72,6 +92,7 @@ export function VoiceControl() {
           body: JSON.stringify({ text }),
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "TTS-Fehler");
+        if (interruptedRef.current) return; // während des Fetches abgebrochen
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const audio = audioElRef.current ?? new Audio();
@@ -80,6 +101,9 @@ export function VoiceControl() {
         audio.onended = () => setState("idle");
         await audio.play();
       } catch {
+        // Abgebrochen -> nicht mehr auf den Fallback ausweichen, sonst
+        // wird die Antwort doch noch (per Browser-Stimme) vorgelesen.
+        if (interruptedRef.current) return;
         // ElevenLabs nicht verfügbar (z.B. Free-Plan-Limit) -> Browser-TTS
         speakWithBrowser(text);
       }
@@ -95,6 +119,7 @@ export function VoiceControl() {
   }, []);
 
   const startRecording = useCallback(async () => {
+    interruptedRef.current = false;
     setErrorMsg("");
     setTranscript("");
     setAnswer("");
@@ -148,6 +173,11 @@ export function VoiceControl() {
   const onTap = () => {
     if (state === "recording") {
       handleStop();
+    } else if (state === "speaking") {
+      // Antwort läuft noch -> sofort abbrechen statt bis zum Ende
+      // warten zu müssen, bevor ein neues Gespräch möglich ist.
+      stopSpeaking();
+      setState("idle");
     } else if (state === "idle" || state === "error") {
       unlockAudio();
       startRecording();
@@ -160,14 +190,14 @@ export function VoiceControl() {
       : state === "thinking"
         ? "VERARBEITE…"
         : state === "speaking"
-          ? "ANTWORTE…"
+          ? "ANTWORTE… (TIPPEN ZUM STOPPEN)"
           : "TAP TO SPEAK";
 
   return (
     <div className="flex flex-col items-center gap-3">
       <button
         onClick={onTap}
-        disabled={state === "thinking" || state === "speaking"}
+        disabled={state === "thinking"}
         className={clsx(
           "relative flex h-20 w-20 items-center justify-center rounded-full border-2 transition-all",
           state === "recording"
